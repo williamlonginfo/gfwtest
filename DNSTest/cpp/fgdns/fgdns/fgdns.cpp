@@ -80,7 +80,6 @@ int genPkt(unsigned char* buf, const unsigned char* srcMac, const unsigned char*
 void genRndDestIp(unsigned char* destIp)
 {
 	memcpy(destIp, "\x46\x55", 2);
-	memcpy(destIp, "\x0a\xc0", 2);
 	unsigned short rndPartIp = rand() + rand();
 	memcpy(destIp + 2, &rndPartIp, 2);
 }
