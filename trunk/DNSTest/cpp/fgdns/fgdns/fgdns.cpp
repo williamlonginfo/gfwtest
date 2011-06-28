@@ -12,7 +12,7 @@
 using namespace std;
 
 
-#ifdef Sabayon 
+#ifdef LINUX
 #define Sleep sleep
 #endif
 
