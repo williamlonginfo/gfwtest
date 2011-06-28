@@ -3,8 +3,18 @@
 #include <memory.h>
 #include <iostream>
 #include <pcap.h>
+#ifdef LINUX
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
 
 using namespace std;
+
+
+#ifdef Sabayon 
+#define Sleep sleep
+#endif
 
 unsigned short cksum(unsigned char* buf, int len)
 {
