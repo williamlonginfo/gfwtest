@@ -11,13 +11,14 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #endif
 
 using namespace std;
 
-
 #ifdef LINUX
-#define Sleep sleep
+#define Sleep usleep
+#define SOCKET int
 #endif
 
 unsigned short cksum(unsigned char* buf, int len)
