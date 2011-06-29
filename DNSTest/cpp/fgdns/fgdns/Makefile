@@ -4,7 +4,7 @@ ifndef os
 	os = LINUX
 endif
 CCFLAGS= -DSabayon -DLINUX
-LDFLAGS=-lpcap
+LDFLAGS=-lpcap -lpthread
 
 SRC= $(shell ls *.cpp)
 OBJS= $(SRC:%.cpp=%.o)
