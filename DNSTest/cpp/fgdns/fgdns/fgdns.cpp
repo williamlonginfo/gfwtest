@@ -3,6 +3,10 @@
 #include <memory.h>
 #include <iostream>
 #include <pcap.h>
+#include <vector>
+#ifdef WIN32
+#include <Winsock2.h>
+#endif
 #ifdef LINUX
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -175,65 +179,113 @@ bool procPkt(const unsigned char* buf, unsigned char* srcMac, unsigned char* des
 	return false;
 }
 
+class PcapSpeCap
+{
+public:
+	PcapSpeCap(pcap_if_t *pcap_dev, unsigned char destIp[4])
+	{
+		this->pcap_dev = pcap_dev;
+		char errbuf[PCAP_ERRBUF_SIZE];
+		this->dev = pcap_open_live(pcap_dev->name, 65535, 0, 0, errbuf);
+		capped = false;
+		memcpy(this->destIp, destIp, 4);
+	}
+	void cap()
+	{
+		if(dev)
+			CreateThread(NULL, 0, ThreadProc, this, 0, NULL);
+	}
+	static void pcap_cap(u_char *user, const struct pcap_pkthdr *pkt_header, const u_char *pkt_data)
+	{
+		PcapSpeCap *This = (PcapSpeCap*)user;
+		if(procPkt(pkt_data, This->srcMac, This->destMac, This->srcIp, This->destIp, This->sessionId, This->pppoe))
+		{
+			This->capped = true;
+			pcap_breakloop(This->dev);
+		}
+	}
+	static DWORD WINAPI ThreadProc(LPVOID lpParameter)
+	{
+		PcapSpeCap *This = (PcapSpeCap*)lpParameter;
+		pcap_loop(This->dev, 0, pcap_cap, (u_char*)lpParameter);
+		return 0;
+	}
+	pcap_if_t* pcap_dev;
+	pcap_t *dev;
+	bool capped;
+	unsigned char srcMac[6];
+	unsigned char destMac[6];
+	unsigned char srcIp[4];
+	unsigned char destIp[4];
+	unsigned char sessionId[2];
+	bool pppoe;
+};
+
 int main(int argc, char* argv[])
 {
+	srand(time(NULL));
 	char errbuf[PCAP_ERRBUF_SIZE];
 	pcap_if_t *alldevs;
+	WSADATA wsaData;
+	WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if(pcap_findalldevs(&alldevs, errbuf) != 0)
 	{
 		cerr << "pcap_findalldevs error: " << errbuf << endl;
 		return 1;
 	}
-	pcap_t *dev;
+	unsigned long saddrl = inet_addr("65.55.0.0");
+	saddrl += rand() + rand();
+	unsigned char* saddrb = (unsigned char*)&saddrl;
+	vector<PcapSpeCap*> speCaps;
 	{
 		pcap_if_t *pcap_dev = alldevs;
 		int i = 1;
 		for(; pcap_dev != NULL; pcap_dev = pcap_dev->next, ++i)
-			cerr << i << ". " << pcap_dev->name << ": " << pcap_dev->description << endl;
-		cout << "Select: " << flush;
-		int n;
-		cin >> n;
-		i = 1;
-		pcap_dev = alldevs;
-		for(; pcap_dev != NULL && i != n; pcap_dev = pcap_dev->next, ++i);
-		if(pcap_dev == NULL)
 		{
-			cerr << "Select error: " << n << endl;
-			return 2;
-		}
-		dev = pcap_open_live(pcap_dev->name, 65535, 0, 0, errbuf);
-		if(dev == NULL)
-		{
-			cerr << "pcap_open_live error: " << errbuf << endl;
-			return 3;
+			PcapSpeCap *pSpeCap = new PcapSpeCap(pcap_dev, saddrb);
+			speCaps.push_back(pSpeCap);
+			pSpeCap->cap();
 		}
 	}
-	unsigned char binSrcMac[4], binDestMac[4], binSrcIp[4], binDestIp[4], buf[256];
-	textMac2BinMac(argv[2], binSrcMac);
-	textMac2BinMac(argv[3], binDestMac);
-	*(unsigned int *)binSrcIp = inet_addr(argv[4]);
-	srand(time(NULL));
-	if(argv[1][0] == 'i')
+	unsigned char binSrcIp[4], binDestIp[4], buf[256];
+	*(unsigned short*)buf = rand() + rand();
+	*(unsigned int *)binSrcIp = inet_addr(argv[1]);
+	SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	sockaddr_in saddr;
+	memset(&saddr, 0, sizeof(saddr));
+	saddr.sin_family = AF_INET;
+	if(bind(s, (sockaddr*)&saddr, sizeof(saddr)) != 0)
 	{
-		while(true)
-		{
-			genRndDestIp(binDestIp);
-			int len = genPkt(buf, binSrcMac, binDestMac, binSrcIp, binDestIp);
-			pcap_sendpacket(dev, buf, len);
-			Sleep(20);
-		}
+			cerr << "socket bind error" << endl;
+			return 4;
 	}
-	else if(argv[1][0] == 'p')
+	saddr.sin_port = htons(53);
+	saddr.sin_addr.S_un.S_addr = saddrl;
+	Sleep(1000);
+	sendto(s, (char*)buf, 1, 0, (sockaddr*)&saddr, sizeof(saddr));
+	Sleep(1000);
+	for(unsigned int i = 0; i < speCaps.size(); i++)
+		pcap_breakloop(speCaps[i]->dev);
+	Sleep(200);
+	while(true)
 	{
-		unsigned char sessionId[2];
-		*(unsigned short*)sessionId = atoi(argv[5]);
-		while(true)
+		for(unsigned int i = 0; i < speCaps.size(); i++)
 		{
+			if(!speCaps[i]->capped)
+				continue;
 			genRndDestIp(binDestIp);
-			int len = genPPPoEPkt(buf, binSrcMac, binDestMac, sessionId, binSrcIp, binDestIp);
-			pcap_sendpacket(dev, buf, len);
-			Sleep(20);
+			if(speCaps[i]->pppoe)
+			{
+				int len = genPPPoEPkt(buf, speCaps[i]->srcMac, speCaps[i]->destMac, speCaps[i]->sessionId, binSrcIp, binDestIp);
+				pcap_sendpacket(speCaps[i]->dev, buf, len);
+			}
+			else
+			{
+				int len = genPkt(buf, speCaps[i]->srcMac, speCaps[i]->destMac, binSrcIp, binDestIp);
+				pcap_sendpacket(speCaps[i]->dev, buf, len);
+			}
 		}
+		Sleep(20);
 	}
 	return 0;
 }
