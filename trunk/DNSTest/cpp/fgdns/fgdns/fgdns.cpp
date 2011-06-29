@@ -239,14 +239,14 @@ public:
     pthread_t pid;
     #endif
 };
-
+#ifdef LINUX
 void * thread_function(void *lpParameter)
 {
     PcapSpeCap *This = (PcapSpeCap*)lpParameter;
     pcap_loop(This->dev, 0, PcapSpeCap::pcap_cap, (u_char*)lpParameter);
     pthread_exit(NULL);
 }
-
+#endif
 int main(int argc, char* argv[])
 {
 	srand(time(NULL));
