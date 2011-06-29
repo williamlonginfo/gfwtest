@@ -8,17 +8,22 @@
 #include <Winsock2.h>
 #endif
 #ifdef LINUX
+#include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h>
 #endif
 
 using namespace std;
 
+
 #ifdef LINUX
 #define Sleep usleep
-#define SOCKET int
+#define WINAPI
+typedef int SOCKET;
+typedef unsigned long int DWORD;
+typedef void * LPVOID;
+void*  thread_function(void *);
 #endif
 
 unsigned short cksum(unsigned char* buf, int len)
@@ -180,6 +185,8 @@ bool procPkt(const unsigned char* buf, unsigned char* srcMac, unsigned char* des
 	return false;
 }
 
+
+
 class PcapSpeCap
 {
 public:
@@ -194,7 +201,13 @@ public:
 	void cap()
 	{
 		if(dev)
-			CreateThread(NULL, 0, ThreadProc, this, 0, NULL);
+        {
+#ifdef WIN32
+            CreateThread(NULL, 0, ThreadProc, this, 0, NULL);
+#else
+            pthread_create(&pid, NULL,thread_function, NULL);
+#endif
+        }
 	}
 	static void pcap_cap(u_char *user, const struct pcap_pkthdr *pkt_header, const u_char *pkt_data)
 	{
@@ -211,6 +224,7 @@ public:
 		pcap_loop(This->dev, 0, pcap_cap, (u_char*)lpParameter);
 		return 0;
 	}
+
 	pcap_if_t* pcap_dev;
 	pcap_t *dev;
 	bool capped;
@@ -220,15 +234,28 @@ public:
 	unsigned char destIp[4];
 	unsigned char sessionId[2];
 	bool pppoe;
+
+    #ifdef LINUX
+    pthread_t pid;
+    #endif
 };
+
+void * thread_function(void *lpParameter)
+{
+    PcapSpeCap *This = (PcapSpeCap*)lpParameter;
+    pcap_loop(This->dev, 0, PcapSpeCap::pcap_cap, (u_char*)lpParameter);
+    pthread_exit(NULL);
+}
 
 int main(int argc, char* argv[])
 {
 	srand(time(NULL));
 	char errbuf[PCAP_ERRBUF_SIZE];
 	pcap_if_t *alldevs;
+#ifdef WIN32
 	WSADATA wsaData;
 	WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
 	if(pcap_findalldevs(&alldevs, errbuf) != 0)
 	{
 		cerr << "pcap_findalldevs error: " << errbuf << endl;
@@ -261,7 +288,11 @@ int main(int argc, char* argv[])
 			return 4;
 	}
 	saddr.sin_port = htons(53);
+
+#ifdef WIN32
 	saddr.sin_addr.S_un.S_addr = saddrl;
+#endif
+
 	Sleep(1000);
 	sendto(s, (char*)buf, 1, 0, (sockaddr*)&saddr, sizeof(saddr));
 	Sleep(1000);
