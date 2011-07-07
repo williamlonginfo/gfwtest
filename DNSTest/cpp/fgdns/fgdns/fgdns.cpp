@@ -288,11 +288,7 @@ int main(int argc, char* argv[])
 			return 4;
 	}
 	saddr.sin_port = htons(53);
-
-#ifdef WIN32
-	saddr.sin_addr.S_un.S_addr = saddrl;
-#endif
-
+	saddr.sin_addr.s_addr = saddrl;
 	Sleep(1000);
 	sendto(s, (char*)buf, 1, 0, (sockaddr*)&saddr, sizeof(saddr));
 	Sleep(1000);
